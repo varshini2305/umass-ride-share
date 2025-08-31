@@ -210,7 +210,8 @@ def cleanup_expired_trips():
         if deleted_count > 0:
             st.success(f"✅ Cleaned up {deleted_count} expired trip(s)")
         else:
-            st.info("ℹ️ No expired trips to clean up")
+            ...
+            # st.info("ℹ️ No expired trips to clean up")
         return deleted_count
     else:
         # MongoDB cleanup
@@ -219,7 +220,8 @@ def cleanup_expired_trips():
             if result.deleted_count > 0:
                 st.success(f"✅ Cleaned up {result.deleted_count} expired trip(s)")
             else:
-                st.info("ℹ️ No expired trips to clean up")
+                # st.info("ℹ️ No expired trips to clean up")
+                ...
             return result.deleted_count
         except Exception as e:
             st.error(f"❌ Error during cleanup: {e}")
@@ -555,4 +557,4 @@ with tab_manage:
                         st.experimental_rerun()
 
 st.markdown("---")
-st.caption("Tip: Use the same contact each time so you can manage your posts. Data lives in MongoDB when MONGODB_URI is set; otherwise it's just in-memory for demo.")
+st.caption("Tip: Use the same contact each time so you can manage your posts. If its an international number, prefix the international code, for eg. for Indian numbers - +91 91111 11111 enter 919111111111")
