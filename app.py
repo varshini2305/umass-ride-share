@@ -534,7 +534,7 @@ with tab_manage:
     with col2:
         if st.button("🔄 Clean Expired Trips"):
             cleanup_expired_trips()
-            st.experimental_rerun()
+            st.rerun()
     
     if contact_m:
         my_posts = fetch_by_contact(contact_m.strip())
@@ -555,7 +555,7 @@ with tab_manage:
                         else:
                             st.error("Delete failed. Contact must match.")
                             st.stop()
-                        st.experimental_rerun()
+                        st.rerun()
 
 st.markdown("---")
 st.caption("Tip: Use the same contact each time so you can manage your posts. If its an international number, prefix the international code, for eg. for Indian numbers - +91 91111 11111 enter 919111111111")
