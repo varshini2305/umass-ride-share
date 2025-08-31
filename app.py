@@ -2,7 +2,7 @@ import os
 import re
 from datetime import datetime, date, time as dtime
 from typing import Tuple, Dict, Any, List
-
+import certifi
 import pandas as pd
 import streamlit as st
 from pymongo import MongoClient, ASCENDING, TEXT
@@ -67,7 +67,8 @@ if not MONGODB_URI:
     db = None
     col = None
 else:
-    client = MongoClient(MONGODB_URI)
+    # client = MongoClient(MONGODB_URI)
+    client = MongoClient(MONGODB_URI, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=30000)
     db = client[DB_NAME]
     col = db["umass-ride-share"]
     # Indexes (safe to call repeatedly)
@@ -209,7 +210,7 @@ def cleanup_expired_trips():
         deleted_count = before - len(st.session_state["_mem_docs"])
         if deleted_count > 0:
             st.success(f"✅ Cleaned up {deleted_count} expired trip(s)")
-        else:
+        # else:
             ...
             # st.info("ℹ️ No expired trips to clean up")
         return deleted_count
@@ -219,7 +220,7 @@ def cleanup_expired_trips():
             result = col.delete_many({"date": {"$lt": today}})
             if result.deleted_count > 0:
                 st.success(f"✅ Cleaned up {result.deleted_count} expired trip(s)")
-            else:
+            # else:
                 # st.info("ℹ️ No expired trips to clean up")
                 ...
             return result.deleted_count
