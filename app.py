@@ -16,7 +16,7 @@ except Exception:
 
 # ---- Config ----
 st.set_page_config(page_title="UMass Ride Share", page_icon="🚗", layout="wide")
-st.title("🚗 UMass Ride Share — cab buddies between Amherst ↔ Boston/NYC")
+st.title("🚗 UMass Ride Share — between Amherst ↔ Boston/NYC")
 
 # Add JavaScript for WhatsApp fallback
 st.markdown("""
