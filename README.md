@@ -9,13 +9,7 @@ A quick web app to match students sharing rides between Amherst ↔ Boston/NYC.
 
 ## Setup
 
-1. **Clone files**
-   ```bash
-   unzip umass_ride_share.zip -d umass_ride_share
-   cd umass_ride_share
-   ```
-
-2. **Install deps**
+1. **Install deps**
    ```bash
    uv sync
    ```
