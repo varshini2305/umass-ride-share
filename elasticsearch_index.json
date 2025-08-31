@@ -1,0 +1,109 @@
+{
+  "mappings": {
+    "properties": {
+      "name": {
+        "type": "text",
+        "analyzer": "standard",
+        "search_analyzer": "standard"
+      },
+      "contact": {
+        "type": "keyword"
+      },
+      "email": {
+        "type": "keyword"
+      },
+      "is_student": {
+        "type": "boolean"
+      },
+      "age": {
+        "type": "integer"
+      },
+      "gender": {
+        "type": "keyword"
+      },
+      "bags": {
+        "type": "integer"
+      },
+      "origin": {
+        "type": "text",
+        "analyzer": "standard",
+        "search_analyzer": "standard",
+        "fields": {
+          "keyword": {
+            "type": "keyword"
+          }
+        }
+      },
+      "destination": {
+        "type": "text",
+        "analyzer": "standard",
+        "search_analyzer": "standard",
+        "fields": {
+          "keyword": {
+            "type": "keyword"
+          }
+        }
+      },
+      "route_key": {
+        "type": "keyword"
+      },
+      "date": {
+        "type": "date"
+      },
+      "time_from": {
+        "type": "keyword"
+      },
+      "time_to": {
+        "type": "keyword"
+      },
+      "time_from_minutes": {
+        "type": "integer"
+      },
+      "time_to_minutes": {
+        "type": "integer"
+      },
+      "price_min": {
+        "type": "float"
+      },
+      "price_max": {
+        "type": "float"
+      },
+      "exact_location": {
+        "type": "text",
+        "analyzer": "standard",
+        "search_analyzer": "standard"
+      },
+      "prefs": {
+        "type": "text",
+        "analyzer": "standard",
+        "search_analyzer": "standard"
+      },
+      "notify_matches": {
+        "type": "boolean"
+      },
+      "created_at": {
+        "type": "date"
+      }
+    }
+  },
+  "settings": {
+    "analysis": {
+      "analyzer": {
+        "standard": {
+          "type": "standard",
+          "stopwords": "_english_"
+        },
+        "fuzzy_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "stop", "snowball"]
+        }
+      }
+    },
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 1,
+      "refresh_interval": "1s"
+    }
+  }
+}
