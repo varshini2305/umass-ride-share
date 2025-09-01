@@ -360,7 +360,9 @@ def cleanup_expired_trips():
     else:
         # MongoDB cleanup
         try:
-            result = col.delete_many({"date": {"$lt": today}})
+            today = date.today()
+            today_dt = datetime.combine(today, datetime.min.time())
+            result = col.delete_many({"date": {"$lt": today_dt}})
             if result.deleted_count > 0:
                 st.success(f"✅ Cleaned up {result.deleted_count} expired trip(s)")
             # else:
