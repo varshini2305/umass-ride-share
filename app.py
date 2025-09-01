@@ -354,7 +354,6 @@ def cleanup_expired_trips():
         if deleted_count > 0:
             st.success(f"✅ Cleaned up {deleted_count} expired trip(s)")
         # else:
-            ...
             # st.info("ℹ️ No expired trips to clean up")
         return deleted_count
     else:
@@ -367,7 +366,6 @@ def cleanup_expired_trips():
                 st.success(f"✅ Cleaned up {result.deleted_count} expired trip(s)")
             # else:
                 # st.info("ℹ️ No expired trips to clean up")
-                ...
             return result.deleted_count
         except Exception as e:
             st.error(f"❌ Error during cleanup: {e}")
