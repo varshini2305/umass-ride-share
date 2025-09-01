@@ -579,7 +579,7 @@ with tab_post:
                     "origin": origin,
                     "destination": dest,
                     "route_key": route_key,
-                    "date": trip_date,
+                    "date": trip_date_dt,
                     "time_from": t_from.strftime("%H:%M"),
                     "time_to": t_to.strftime("%H:%M"),
                     "time_from_minutes": int(t_from.hour * 60 + t_from.minute),
