@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime, date, time as dtime
+from datetime import datetime, date, timezone, time as dtime
 from typing import Tuple, Dict, Any, List
 import certifi
 import pandas as pd
@@ -552,6 +552,7 @@ with tab_post:
         st.markdown("**Route**")
         origin, dest = route_inputs(prefix="post_")
         trip_date = st.date_input("Date", value=date.today())
+        trip_date_dt = datetime.combine(trip_date, datetime.min.time(), tzinfo=timezone.utc)
         t_from, t_to = time_range_inputs(prefix="post_", default_from=dtime(0, 0), default_to=dtime(23, 59))
         pmin, pmax = price_range_inputs(prefix="post_")
 
