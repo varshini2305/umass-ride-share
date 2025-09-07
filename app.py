@@ -13,6 +13,19 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 
+from datetime import datetime
+import pytz   # or zoneinfo in Python 3.9+
+
+# Optional: handle websocket closed errors gracefully (e.g., when user navigates away)
+try:
+    from tornado.websocket import WebSocketClosedError  # type: ignore
+except Exception:  # pragma: no cover
+    WebSocketClosedError = Exception  # fallback so we can except it even if import is unavailable
+
+eastern = pytz.timezone("America/New_York")
+
+# Now in EST/EDT
+created_at = datetime.now(eastern).isoformat()
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -66,10 +79,10 @@ MONGODB_URI = os.getenv("MONGODB_URI", "")
 DB_NAME = os.getenv("DB_NAME", "apps-on-demand")
 
 # Email configuration
-EMAIL_SENDER = "vbexperiments93@gmail.com"
+EMAIL_SENDER = os.getenv("EMAIL_SENDER", "")  # Set this in .env file
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")  # Set this in .env file
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 
 if not MONGODB_URI:
     st.warning("Set MONGODB_URI in .env or environment for persistence. Using in-memory fallback.")
@@ -79,22 +92,25 @@ if not MONGODB_URI:
     db = None
     col = None
 else:
-    # client = MongoClient(MONGODB_URI)
-    client = MongoClient(MONGODB_URI, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=30000)
-    db = client[DB_NAME]
-    col = db["umass-ride-share"]
-    # Indexes (safe to call repeatedly)
-    try:
-        col.create_index([("route_key", ASCENDING), ("date", ASCENDING)])
-        col.create_index([("date", ASCENDING)])  # Date index for efficient date queries
-        col.create_index([("created_at", ASCENDING)])
-        col.create_index([("name", ASCENDING)])
-        col.create_index([("contact", ASCENDING)])
-        col.create_index([("prefs", TEXT)])
-        col.create_index([("email", ASCENDING)])  # Email index for notifications
-        col.create_index([("notify_matches", ASCENDING)])  # Notification preference index
-    except Exception as e:
-        st.info(f"Indexing note: {e}")
+    @st.cache_resource(show_spinner=False)
+    def get_collection() -> Any:
+        client_local = MongoClient(MONGODB_URI, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=30000)
+        db_local = client_local[DB_NAME]
+        collection = db_local["umass-ride-share"]
+        try:
+            collection.create_index([("route_key", ASCENDING), ("date", ASCENDING)])
+            collection.create_index([("date", ASCENDING)])
+            collection.create_index([("created_at", ASCENDING)])
+            collection.create_index([("name", ASCENDING)])
+            collection.create_index([("contact", ASCENDING)])
+            collection.create_index([("prefs", TEXT)])
+            collection.create_index([("email", ASCENDING)])
+            collection.create_index([("notify_matches", ASCENDING)])
+        except Exception as e:
+            st.info(f"Indexing note: {e}")
+        return collection
+
+    col = get_collection()
 
 CITIES = ["Amherst", "Boston", "New York", "Other"]
 GENDERS = ["Prefer not to say", "Female", "Male", "Non-binary", "Other"]
@@ -177,9 +193,6 @@ def format_contact_display(contact: str) -> str:
         **Quick Actions:**
         • [📞 Call]({tel_link}) - Opens phone app
         • [💬 WhatsApp]({whatsapp_link}) - Opens WhatsApp
-        • [💌 Message]({message_link}) - Opens Messages app (iPhone) / SMS (Android)
-        
-        *If WhatsApp doesn't work, the Message link will open your default messaging app*
         """
     elif is_valid_email(contact):
         # Create mailto: link for email apps
@@ -204,8 +217,8 @@ def normalize_city(city: str, other: str) -> str:
 
 def send_email_notification(recipient_email: str, matches: List[Dict[str, Any]], search_origin: str, search_destination: str, search_date: str) -> bool:
     """Send email notification about ride matches"""
-    if not EMAIL_PASSWORD:
-        st.warning("Email password not configured. Set EMAIL_PASSWORD in .env file.")
+    if not EMAIL_SENDER or not EMAIL_PASSWORD:
+        st.warning("Email not configured. Set EMAIL_SENDER and EMAIL_PASSWORD in .env file.")
         return False
     
     try:
@@ -226,7 +239,7 @@ def send_email_notification(recipient_email: str, matches: List[Dict[str, Any]],
         """
         
         for i, match in enumerate(matches, 1):
-            date_str = match.get("date").strftime("%Y-%m-%d") if hasattr(match.get("date"), 'strftime') else str(match.get("date", ""))
+            date_str = match.get("date", "")
             body += f"""
             <div style="border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px;">
                 <h4>Match #{i}: {match.get('name')}</h4>
@@ -272,9 +285,9 @@ def send_email_notification(recipient_email: str, matches: List[Dict[str, Any]],
         st.error(f"Failed to send email: {e}")
         return False
 
-def check_and_notify_matches(origin: str, destination: str, trip_date: date, exclude_contact: str = None) -> None:
+def check_and_notify_matches(origin: str, destination: str, trip_date: str, exclude_contact: str = None) -> None:
     """Check for matches and send notifications to users who opted in"""
-    if not col:
+    if col is None:
         return
     
     try:
@@ -317,14 +330,17 @@ def check_and_notify_matches(origin: str, destination: str, trip_date: date, exc
                     trip_date=trip_date
                 )
                 
-                if matches:
+                # Filter out the user's own posts from matches
+                filtered_matches = [m for m in matches if m.get("contact") != user.get("contact")]
+                
+                if filtered_matches:
                     # Send notification
                     send_email_notification(
                         user.get("email"),
-                        matches,
+                        filtered_matches,
                         origin,
                         destination,
-                        trip_date.strftime("%Y-%m-%d")
+                        trip_date
                     )
                     
     except Exception as e:
@@ -341,14 +357,14 @@ def price_overlap(a_min: float, a_max: float, b_min: float, b_max: float) -> boo
 
 def cleanup_expired_trips():
     """Automatically delete trips where the travel date has passed"""
-    today = date.today()
+    today_iso = date.today().isoformat()
     
     if col is None:
         # In-memory cleanup
         before = len(st.session_state["_mem_docs"])
         st.session_state["_mem_docs"] = [
             d for d in st.session_state["_mem_docs"]
-            if d.get("date", date.min) >= today
+            if d.get("date") >= today_iso
         ]
         deleted_count = before - len(st.session_state["_mem_docs"])
         if deleted_count > 0:
@@ -359,9 +375,7 @@ def cleanup_expired_trips():
     else:
         # MongoDB cleanup
         try:
-            today = date.today()
-            today_dt = datetime.combine(today, datetime.min.time())
-            result = col.delete_many({"date": {"$lt": today_dt}})
+            result = col.delete_many({"date": {"$lt": today_iso}})
             if result.deleted_count > 0:
                 st.success(f"✅ Cleaned up {result.deleted_count} expired trip(s)")
             # else:
@@ -396,107 +410,103 @@ def fetch_by_contact(contact: str) -> List[Dict[str, Any]]:
         return [d for d in st.session_state["_mem_docs"] if d.get("contact") == contact]
     return list(col.find({"contact": contact}).sort("created_at", -1))
 
+
+from typing import List, Dict, Any, Optional
+from datetime import time as dtime
+
+# ---- Duplicate check helper ----
+def doc_exists_for_contact_and_date(contact: str, trip_date_iso: str) -> bool:
+    """Return True if a document already exists for the same contact and date."""
+    try:
+        if col is None:
+            return any(
+                (d.get("contact") == contact and d.get("date") == trip_date_iso)
+                for d in st.session_state.get("_mem_docs", [])
+            )
+        return col.count_documents({"contact": contact, "date": trip_date_iso}, limit=1) > 0
+    except Exception:
+        # If the DB check fails for any reason, be conservative and allow insert
+        return False
+
+def minutes(t: dtime) -> int:
+    return t.hour * 60 + t.minute
+
 def find_matches(
-    origin: str = None,
-    destination: str = None,
-    trip_date: date = None,
-    t_from: dtime = None,
-    t_to: dtime = None,
-    p_min: float = None,
-    p_max: float = None,
+    origin: Optional[str] = None,
+    destination: Optional[str] = None,
+    trip_date: Optional[str] = None,
+    t_from: Optional[dtime] = None,
+    t_to: Optional[dtime] = None,
     max_results: int = 50
 ) -> List[Dict[str, Any]]:
-    # Build query based on provided filters
-    query = {}
-    
+    if col is None:
+        return []
+
+    # Base query (exact date match on ISO string)
+    query: Dict[str, Any] = {}
     if trip_date:
         query["date"] = trip_date
-    
-    if col is None:
-        docs = [d for d in st.session_state["_mem_docs"] 
-                if all(d.get(k) == v for k, v in query.items())]
-    else:
-        docs = list(col.find(query))
 
-    # Apply origin and destination similarity filters
+    try:
+        docs: List[Dict[str, Any]] = list(col.find(query))
+    except Exception as _:
+        # Fallback: nothing we can do without DB
+        return []
+
+    # Origin/Destination similarity filtering (substring and word overlap)
     if origin or destination:
-        filtered_docs = []
+        origin_lower = origin.lower().strip() if origin else None
+        dest_lower = destination.lower().strip() if destination else None
+
+        filtered: List[Dict[str, Any]] = []
         for d in docs:
-            match_score = 0
-            d_origin = d.get("origin", "").lower().strip()
-            d_dest = d.get("destination", "").lower().strip()
-            
-            # Origin similarity check
-            if origin:
-                origin_lower = origin.lower().strip()
+            score = 0.0
+            d_origin = (d.get("origin", "") or "").lower().strip()
+            d_dest = (d.get("destination", "") or "").lower().strip()
+
+            if origin_lower:
                 if origin_lower in d_origin or d_origin in origin_lower:
-                    match_score += 1
-                elif any(word in d_origin for word in origin_lower.split()):
-                    match_score += 0.5
-                elif any(word in origin_lower for word in d_origin.split()):
-                    match_score += 0.5
-            
-            # Destination similarity check
-            if destination:
-                dest_lower = destination.lower().strip()
+                    score += 1.0
+                elif any(w and w in d_origin for w in origin_lower.split()):
+                    score += 0.5
+                elif any(w and w in origin_lower for w in d_origin.split()):
+                    score += 0.5
+
+            if dest_lower:
                 if dest_lower in d_dest or d_dest in dest_lower:
-                    match_score += 1
-                elif any(word in d_dest for word in dest_lower.split()):
-                    match_score += 0.5
-                elif any(word in dest_lower for word in d_dest.split()):
-                    match_score += 0.5
-            
-            # Only include if there's some match
-            if match_score > 0:
-                d["_similarity_score"] = match_score
-                filtered_docs.append(d)
-        
-        docs = filtered_docs
-        
-        # Sort by similarity score (higher is better)
+                    score += 1.0
+                elif any(w and w in d_dest for w in dest_lower.split()):
+                    score += 0.5
+                elif any(w and w in dest_lower for w in d_dest.split()):
+                    score += 0.5
+
+            if score > 0:
+                d["_similarity_score"] = score
+                filtered.append(d)
+
+        docs = filtered
+
+        # Sort by similarity score desc
         docs.sort(key=lambda x: x.get("_similarity_score", 0), reverse=True)
 
-    # Apply time and price filters if provided
+    # Time overlap filter
     if t_from and t_to:
         tA_min = minutes(t_from)
         tA_max = minutes(t_to)
-        
-        filtered_docs = []
-        for d in docs:
-            tB_min = d.get("time_from_minutes", 0)
-            tB_max = d.get("time_to_minutes", 0)
-            if ranges_overlap(tA_min, tA_max, tB_min, tB_max):
-                filtered_docs.append(d)
-        docs = filtered_docs
+        docs = [
+            d for d in docs
+            if (d.get("time_from_minutes", 0) <= tA_max) and (d.get("time_to_minutes", 0) >= tA_min)
+        ]
 
-    if p_min is not None and p_max is not None:
-        filtered_docs = []
+        # Add time distance score and sort secondary
+        midA = (tA_min + tA_max) / 2.0
         for d in docs:
-            d_pmin = float(d.get("price_min", 0))
-            d_pmax = float(d.get("price_max", 10**9))
-            if price_overlap(p_min, p_max, d_pmin, d_pmax):
-                filtered_docs.append(d)
-        docs = filtered_docs
+            midB = (float(d.get("time_from_minutes", 0)) + float(d.get("time_to_minutes", 0))) / 2.0
+            d["_time_score"] = abs(midA - midB)
 
-    # Score and sort if time filters are applied
-    if t_from and t_to:
-        for d in docs:
-            tA_min = minutes(t_from)
-            tA_max = minutes(t_from)
-            tB_min = d.get("time_from_minutes", 0)
-            tB_max = d.get("time_to_minutes", 0)
-            
-            # simple score: smaller mid-time distance preferred
-            midA = (tA_min + tA_max) / 2
-            midB = (tB_min + tB_max) / 2
-            score = abs(midA - midB)
-            d["_time_score"] = score
-        
-        # Sort by time score (lower is better) and then by similarity score
         docs.sort(key=lambda x: (x.get("_time_score", 0), -x.get("_similarity_score", 0)))
 
     return docs[:max_results]
-
 # ---- UI helpers ----
 def route_inputs(prefix: str = ""):
     col1, col2 = st.columns(2)
@@ -552,7 +562,7 @@ with tab_post:
         st.markdown("**Route**")
         origin, dest = route_inputs(prefix="post_")
         trip_date = st.date_input("Date", value=date.today())
-        trip_date_dt = datetime.combine(trip_date, datetime.min.time(), tzinfo=timezone.utc)
+        trip_date_iso = trip_date.isoformat()
         t_from, t_to = time_range_inputs(prefix="post_", default_from=dtime(0, 0), default_to=dtime(23, 59))
         pmin, pmax = price_range_inputs(prefix="post_")
 
@@ -567,7 +577,11 @@ with tab_post:
             elif t_to <= t_from:
                 st.error("Fix time range.")
             else:
-                route_key = f"{origin.strip().lower()}→{dest.strip().lower()}"
+                route_key = f"{origin.strip().replace(' ', '').lower()}→{dest.strip().replace(' ', '').lower()}"
+                # Duplicate guard: same contact and date already exists
+                if doc_exists_for_contact_and_date(contact.strip(), trip_date_iso):
+                    st.warning("Data already exists in the database for this phone number and date. Skipping insertion.")
+                    st.stop()
                 doc = {
                     "name": name.strip(),
                     "contact": contact.strip(),
@@ -579,7 +593,7 @@ with tab_post:
                     "origin": origin,
                     "destination": dest,
                     "route_key": route_key,
-                    "date": trip_date_dt,
+                    "date": trip_date_iso,
                     "time_from": t_from.strftime("%H:%M"),
                     "time_to": t_to.strftime("%H:%M"),
                     "time_from_minutes": int(t_from.hour * 60 + t_from.minute),
@@ -589,22 +603,29 @@ with tab_post:
                     "exact_location": exact_loc.strip(),
                     "prefs": prefs.strip(),
                     "notify_matches": bool(notify_matches),
-                    "created_at": datetime.utcnow()
+                    "created_at": created_at
                 }
                 _id = save_doc(doc)
                 st.success(f"Trip posted successfully!")
                 
                 # Check for matches and send notifications to users who opted in
-                if col:  # Only send notifications if using MongoDB
-                    check_and_notify_matches(origin, dest, trip_date, contact.strip())
+                if col is not None:  # Only send notifications if using MongoDB
+                    try:
+                        check_and_notify_matches(origin, dest, trip_date_iso, contact.strip())
+                    except WebSocketClosedError:
+                        # The client disconnected; ignore this benign error
+                        pass
+                    except Exception as _:
+                        # Swallow notification errors to avoid interrupting the user flow
+                        pass
 
                 with st.expander("See matches now"):
-                    matches = find_matches(origin=origin, destination=dest, trip_date=trip_date, t_from=t_from, t_to=t_to, p_min=pmin, p_max=pmax)
+                    matches = find_matches(origin=origin, destination=dest, trip_date=trip_date_iso, t_from=t_from, t_to=t_to)
                     if matches:
                         df = pd.DataFrame([
                             {
                                 "Name": m.get("name"),
-                                "Date": m.get("date").strftime("%Y-%m-%d") if hasattr(m.get("date"), 'strftime') else str(m.get("date", "")),
+                                "Date": m.get("date", ""),
                                 "Time": f'{m.get("time_from")}–{m.get("time_to")}',
                                 "Bags": m.get("bags", 0),
                                 "Price ($)": f'{int(m.get("price_min",0))}-{int(m.get("price_max",0))}',
@@ -667,11 +688,11 @@ with tab_search:
         results = find_matches(
             origin=origin_s.strip(),
             destination=dest_s.strip(),
-            trip_date=date_s if date_s else None,
+            trip_date=date_s.isoformat() if date_s else None,
             t_from=t_from_s,
             t_to=t_to_s,
-            p_min=pmin_s,
-            p_max=pmax_s
+            # p_min=pmin_s,
+            # p_max=pmax_s
         )
         
         if q:
@@ -684,7 +705,7 @@ with tab_search:
         else:
             st.caption(f"Found {len(results)} match(es).")
             for r in results:
-                date_str = r.get("date").strftime("%Y-%m-%d") if hasattr(r.get("date"), 'strftime') else str(r.get("date", ""))
+                date_str = r.get("date", "")
                 with st.expander(f'{r.get("name")} · {r.get("origin")} → {r.get("destination")} · {date_str} · {r.get("time_from")}–{r.get("time_to")}'):
                     c1, c2, c3 = st.columns(3)
                     with c1:
@@ -729,7 +750,7 @@ with tab_manage:
             st.info("No posts found for this contact.")
         else:
             for p in my_posts:
-                date_str = p.get("date").strftime("%Y-%m-%d") if hasattr(p.get("date"), 'strftime') else str(p.get("date", ""))
+                date_str = p.get("date", "")
                 with st.expander(f'{p.get("origin")} → {p.get("destination")} · {date_str} · {p.get("time_from")}–{p.get("time_to")}'):
                     st.write(f'**Price:** ${int(p.get("price_min",0))}–{int(p.get("price_max",0))}')
                     bags = p.get("bags", 0)
@@ -747,3 +768,6 @@ with tab_manage:
 
 st.markdown("---")
 st.caption("Tip: Use the same contact each time so you can manage your posts. If its an international number, prefix the international code, for eg. for Indian numbers - +91 91111 11111 enter 919111111111")
+
+st.markdown("---")
+st.warning("⚠️ **Important:** Records with 'test' in the name or email were created for testing purposes only. Please ignore these test records and only reach out to non-test users for actual ride sharing.")
