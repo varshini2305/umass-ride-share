@@ -435,8 +435,8 @@ def find_matches(
     origin: Optional[str] = None,
     destination: Optional[str] = None,
     trip_date: Optional[str] = None,
-    t_from: Optional[dtime] = None,
-    t_to: Optional[dtime] = None,
+    t_from: Optional[dtime] = dtime(0, 0),
+    t_to: Optional[dtime] = dtime(23, 59),
     max_results: int = 50
 ) -> List[Dict[str, Any]]:
     if col is None:
@@ -495,6 +495,7 @@ def find_matches(
         tA_max = minutes(t_to)
         docs = [
             d for d in docs
+            # if ((d.get("time_from_minutes") or 0) <= tA_max) and ((d.get("time_to_minutes") or 0) >= tA_min)
             if (d.get("time_from_minutes", 0) <= tA_max) and (d.get("time_to_minutes", 0) >= tA_min)
         ]
 
