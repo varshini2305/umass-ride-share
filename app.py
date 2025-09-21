@@ -493,12 +493,8 @@ def find_matches(
     if t_from and t_to:
         tA_min = minutes(t_from)
         tA_max = minutes(t_to)
-        print(f"debug - {tA_max=}, {tA_min=}")
-        for d in docs:
-            print(f"{d=}")
         docs = [
             d for d in docs
-            # if ((d.get("time_from_minutes") or 0) <= tA_max) and ((d.get("time_to_minutes") or 0) >= tA_min)
             if (d.get("time_from_minutes", 0) <= tA_max) and (d.get("time_to_minutes", 0) >= tA_min)
         ]
 
