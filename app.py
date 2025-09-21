@@ -415,15 +415,15 @@ from typing import List, Dict, Any, Optional
 from datetime import time as dtime
 
 # ---- Duplicate check helper ----
-def doc_exists_for_contact_and_date(contact: str, trip_date_iso: str) -> bool:
-    """Return True if a document already exists for the same contact and date."""
+def doc_exists_for_contact_date_and_route(contact: str, trip_date_iso: str, route_key: str) -> bool:
+    """Return True if a document already exists for the same contact, date, and route."""
     try:
         if col is None:
             return any(
-                (d.get("contact") == contact and d.get("date") == trip_date_iso)
+                (d.get("contact") == contact and d.get("date") == trip_date_iso and d.get("route_key") == route_key)
                 for d in st.session_state.get("_mem_docs", [])
             )
-        return col.count_documents({"contact": contact, "date": trip_date_iso}, limit=1) > 0
+        return col.count_documents({"contact": contact, "date": trip_date_iso, "route_key": route_key}, limit=1) > 0
     except Exception:
         # If the DB check fails for any reason, be conservative and allow insert
         return False
@@ -494,6 +494,8 @@ def find_matches(
         tA_min = minutes(t_from)
         tA_max = minutes(t_to)
         print(f"debug - {tA_max=}, {tA_min=}")
+        for d in docs:
+            print(f"{d=}")
         docs = [
             d for d in docs
             # if ((d.get("time_from_minutes") or 0) <= tA_max) and ((d.get("time_to_minutes") or 0) >= tA_min)
@@ -580,9 +582,9 @@ with tab_post:
                 st.error("Fix time range.")
             else:
                 route_key = f"{origin.strip().replace(' ', '').lower()}→{dest.strip().replace(' ', '').lower()}"
-                # Duplicate guard: same contact and date already exists
-                if doc_exists_for_contact_and_date(contact.strip(), trip_date_iso):
-                    st.warning("Data already exists in the database for this phone number and date. Skipping insertion.")
+                # Duplicate guard: same contact, date, and route already exists
+                if doc_exists_for_contact_date_and_route(contact.strip(), trip_date_iso, route_key):
+                    st.warning("Data already exists in the database for this phone number, date, and route. Skipping insertion.")
                     st.stop()
                 doc = {
                     "name": name.strip(),
